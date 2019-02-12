@@ -1,8 +1,22 @@
 [package]
 name = "dep"
+description = "A very basic, git based, flat dependency manager"
 version = "0.1.0"
 authors = ["hardliner66"]
 edition = "2018"
+
+homepage = "https://github.com/hardliner66/dep"
+repository = "https://github.com/hardliner66/dep"
+
+license = "MIT"
+
+readme = "README.md"
+categories = [
+    "development-tools",
+    "development-tools::build-utils"
+]
+
+keywords = ["dependency", "dependencies", "manager"]
 
 exclude = [
     "VENDOR",
