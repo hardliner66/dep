@@ -2,6 +2,8 @@
 
 A very basic, git based, flat dependency manager
 
+# Warning:
+
 Currently only public repos or repos with ssh are supported. So, no user-pass authentication.
 
 ## Commands

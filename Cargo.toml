@@ -23,6 +23,9 @@ exclude = [
     "deps.toml",
 ]
 
+[badges]
+maintenance = { status = "experimental" }
+
 [dependencies]
 toml = "0.4.10"
 serde = "1.0.87"
