@@ -11,6 +11,7 @@ use std::process::exit;
 
 use argparse::ArgumentParser;
 use argparse::Store;
+use argparse::StoreTrue;
 use git2;
 use git2::build::CheckoutBuilder;
 use git2::build::RepoBuilder;
@@ -151,20 +152,25 @@ fn read(file: &mut File) -> std::result::Result<String, std::io::Error> {
 #[derive(Debug)]
 struct Options {
     command: String,
+    force: bool,
 }
 
 fn get_options() -> Options {
     let mut command = "".to_string();
+    let mut force = false;
     {
         // this block limits scope of borrows by ap.refer() method
         let mut ap = ArgumentParser::new();
         ap.set_description("Dependency manager.");
+        ap.refer(&mut force)
+            .add_option(&["--force", "-f"], StoreTrue, "force checkout. Removes the vendor dir and starts from a clean state.");
         ap.refer(&mut command)
             .add_argument("command", Store, "the command to execute. [init, update]");
         ap.parse_args_or_exit();
     }
     Options {
         command: command.to_lowercase().trim().to_string(),
+        force,
     }
 }
 
@@ -294,11 +300,11 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
         if !libdir.exists() {
             println!("Creating lib dir: {}", libdir.to_string_lossy());
             std::fs::create_dir_all(&libdir)?;
-//        } else {
-//            println!("Deleting old lib dir: {}", libdir.to_string_lossy());
-//            remove_dir_all::remove_dir_all(&libdir)?;
-//            println!("Creating lib dir: {}", libdir.to_string_lossy());
-//            std::fs::create_dir_all(&libdir)?;
+        } else if options.force {
+            println!("Deleting old lib dir: {}", libdir.to_string_lossy());
+            remove_dir_all::remove_dir_all(&libdir)?;
+            println!("Creating lib dir: {}", libdir.to_string_lossy());
+            std::fs::create_dir_all(&libdir)?;
         }
 
         match &man.dependencies {
@@ -399,8 +405,15 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
                                         co.refresh(true);
                                         co.recreate_missing(true);
                                         co.update_index(true);
-                                        co.overwrite_ignored(true);
                                         co.allow_conflicts(false);
+                                        co.remove_untracked(true);
+
+                                        let spec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
+
+                                        remote.fetch(&[&spec], Some(&mut fo), None)?;
+                                        remote.download(&[&spec], Some(&mut fo))?;
+
+                                        remote.disconnect();
 
                                         let local_branch_name = format!("refs/heads/{}", branch_name);
 
@@ -410,17 +423,17 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
 
                                         let local_branch = local_branch_tree.as_object();
 
-                                        remote.fetch(&["refs/heads/*:refs/heads/*"], Some(&mut fo), None)?;
-                                        remote.download(&["refs/heads/*:refs/heads/*"], Some(&mut fo))?;
-
-                                        remote.disconnect();
-
                                         repo.set_head(&local_branch_name)?;
-
                                         repo.checkout_tree(&local_branch, Some(&mut co))?;
-
                                         repo.reset(repo.head()?.peel_to_commit()?.as_object(), git2::ResetType::Mixed, None)?;
+                                        repo.cleanup_state()?;
 
+                                        // i don't know why, but if i don't repeat this block,
+                                        // the repo doesn't get cleaned up correctly when a branch is changed
+                                        // TODO: Maybe fix this some time
+                                        repo.set_head(&local_branch_name)?;
+                                        repo.checkout_tree(&local_branch, Some(&mut co))?;
+                                        repo.reset(repo.head()?.peel_to_commit()?.as_object(), git2::ResetType::Mixed, None)?;
                                         repo.cleanup_state()?;
                                     }
                                 }
