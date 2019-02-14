@@ -2,3 +2,4 @@
 **/*.rs.bk
 VENDOR
 deps.toml
+.idea
