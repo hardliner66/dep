@@ -18,14 +18,29 @@ use git2::build::RepoBuilder;
 use git2::FetchOptions;
 use git2::RemoteCallbacks;
 
+use path_clean::PathClean;
+
+fn absolute_path<P>(path: P) -> std::io::Result<PathBuf>
+    where
+        P: AsRef<Path>,
+{
+    let path = path.as_ref();
+    if path.is_absolute() {
+        Ok(path.to_path_buf().clean())
+    } else {
+        Ok(std::env::current_dir()?.join(path).clean())
+    }
+}
+
 #[cfg(windows)]
 mod systools {
     use std::env::VarError;
     use std::os::windows::fs::symlink_dir;
     use std::path::Path;
+    use crate::absolute_path;
 
     pub fn make_symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Result<(), std::io::Error> {
-        symlink_dir(src, dst)
+        symlink_dir(absolute_path(src).unwrap(), absolute_path(dst).unwrap())
     }
 
     pub fn get_home_dir_env_var() -> &'static str {
@@ -42,9 +57,10 @@ mod systools {
     use std::env::VarError;
     use std::os::unix::fs::symlink;
     use std::path::Path;
+    use crate::absolute_path;
 
     pub fn make_symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Result<(), std::io::Error> {
-        symlink(src, dst)
+        symlink(absolute_path(src).unwrap(), absolute_path(dst).unwrap())
     }
 
     pub fn get_home_dir_env_var() -> &'static str {
@@ -117,6 +133,9 @@ pub struct TomlDependency {
     branch: Option<String>,
     tag: Option<String>,
     rev: Option<String>,
+    into: Option<PathBuf>,
+    #[serde(rename="as")]
+    name: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -310,19 +329,6 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
         match &man.dependencies {
             None => (),
             Some(deps) => {
-                for lib in libdir.read_dir()?.filter(|p| {
-                    match p {
-                        Ok(d) => {
-                            !deps.keys().any(|k| *k == d.file_name().to_string_lossy().to_string())
-                        }
-                        Err(_) => false,
-                    }
-                }).flat_map(|d| match d {
-                    Ok(d) => Some(d),
-                    _ => None,
-                }) {
-                    remove_dir_all::remove_dir_all(&lib.path())?;
-                }
                 if deps.values().any(|d| d.git.is_some() || (d.repo.is_some() && man.project.git_server.is_some())) {
                     match opts.ssh {
                         Some(ssh) => {
@@ -339,12 +345,20 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
 
 
                 for (name, dep) in deps {
-                    let dst = libdir.join(Path::new(&name));
+                    let libdir = &dep.clone().into.unwrap_or_else(|| libdir.clone());
+                    if !libdir.exists() {
+                        println!("Creating lib dir: {}", libdir.to_string_lossy());
+                        std::fs::create_dir_all(&libdir)?;
+                    }
+
+                    let name = &dep.clone().name.unwrap_or_else(|| name.clone());
+
+                    let dst = libdir.join(Path::new(name));
 
                     match &dep.path {
                         Some(path) => {
                             if !dst.exists() {
-                                println!("Linking path: {}", path.to_string_lossy());
+                                println!("Linking path \"{}\" into \"{}\" as \"{}\"", path.to_string_lossy(), libdir.to_string_lossy(), name);
                                 systools::make_symlink(&path, &dst)?;
                             }
                         }
@@ -380,7 +394,7 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
 
                             match (&dep.branch, &dep.tag, &dep.rev) {
                                 (Some(branch_name), None, None) => {
-                                    println!("Cloning branch \"{}\" from {}", branch_name, url);
+                                    println!("Cloning branch \"{}\" from \"{}\" into \"{}\" as \"{}\"", branch_name, url, libdir.to_string_lossy(), name);
                                     if !dst.exists() {
                                         std::fs::create_dir_all(&dst)?;
                                         RepoBuilder::new().branch(branch_name).fetch_options(fo).with_checkout(co)
@@ -438,7 +452,7 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
                                     }
                                 }
                                 (None, Some(tag), None) => {
-                                    println!("Cloning tag \"{}\" from {}", tag, url);
+                                    println!("Cloning tag \"{}\" from \"{}\" into \"{}\" as \"{}\"", tag, url, libdir.to_string_lossy(), name);
                                     let repo = if !dst.exists() {
                                         std::fs::create_dir_all(&dst)?;
                                         RepoBuilder::new().fetch_options(fo).with_checkout(co)
@@ -465,7 +479,7 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
                                     repo.set_head(&full_tag)?;
                                 }
                                 (None, None, Some(rev)) => {
-                                    println!("Cloning revision \"{}\" from {}", rev, url);
+                                    println!("Cloning revision \"{}\" from \"{}\" into \"{}\" as \"{}\"", rev, url, libdir.to_string_lossy(), name);
                                     let repo = if !dst.exists() {
                                         std::fs::create_dir_all(&dst)?;
                                         RepoBuilder::new().fetch_options(fo).with_checkout(co)
@@ -489,7 +503,7 @@ fn main() -> std::result::Result<(), Box<std::error::Error>> {
                                     repo.set_head_detached(commit.id())?;
                                 }
                                 _ => {
-                                    println!("Cloning repository from {}", url);
+                                    println!("Cloning repository from \"{}\" into \"{}\" as \"{}\"", url, libdir.to_string_lossy(), name);
                                     if !dst.exists() {
                                         std::fs::create_dir_all(&dst)?;
                                         RepoBuilder::new().fetch_options(fo).with_checkout(co)
