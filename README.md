@@ -38,6 +38,12 @@ git-server = 'git.myserver.com'
 # public git repo
 some_repo = { git = 'https://my.gitserver.com/user/some_repo' }
 
+# custom lib-dir for this dependecy
+some_repo2 = { git = 'https://my.gitserver.com/user/some_repo2', into = 'custom_lib_dir' }
+
+# rename output dir (inside lib-dir) for this dependency
+some_repo3 = { git = 'https://my.gitserver.com/user/some_repo3', as = 'mylib' }
+
 # private git repo
 some_private_repo = { git = 'git@my.gitserver.com:user/some_private_repo' }
 
@@ -47,7 +53,7 @@ some_private_repo2 = { repo = 'user/some_private_repo2' }
 # branches
 some_other_private_repo = { git = 'git@my.gitserver.com:user/some_other_private_repo', branch = 'feature3' }
 
-#local folders
+# local folders
 some_local_repo = { path = '../some/local/folder' }
 ```
 
